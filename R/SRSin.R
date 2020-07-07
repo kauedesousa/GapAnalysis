@@ -42,9 +42,7 @@
 #'
 #' @export
 #' @importFrom raster raster crop
-
-
-SRSin <- function(Species_list, Occurrence_data, Raster_list,Pro_areas=NULL, Gap_Map=NULL){
+SRSin <- function(Species_list, Occurrence_data, Raster_list, Pro_areas=NULL, Gap_Map=FALSE){
 
   taxon <- NULL
   longitude <- NULL
@@ -62,24 +60,17 @@ SRSin <- function(Species_list, Occurrence_data, Raster_list,Pro_areas=NULL, Gap
   if(identical(names(Occurrence_data),par_names)==FALSE){
     stop("Please format the column names in your dataframe as taxon,latitude,longitude,type")
   }
+
   #Checking if user is using a raster list or a raster stack
-  if(class(Raster_list)=="RasterStack"){
+  if (isTRUE("RasterStack" %in% class(Raster_list))) {
     Raster_list <- raster::unstack(Raster_list)
   } else {
     Raster_list <- Raster_list
   }
 
-  #Checking if GapMapEx option is a boolean
-  if(is.null(Gap_Map) | missing(Gap_Map)){ Gap_Map <- FALSE
-  } else if(Gap_Map==TRUE | Gap_Map==FALSE){
-    Gap_Map <- Gap_Map
-  } else {
-    stop("Choose a valid option for GapMap (TRUE or FALSE)")
-  }
-
   # Load in protected areas
 
-  if(is.null(Pro_areas) | missing(Pro_areas)){
+  if(is.null(Pro_areas)){
     if(file.exists(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",package = "GapAnalysis"))){
       Pro_areas <- raster::raster(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",package = "GapAnalysis"))
     } else {
@@ -89,7 +80,7 @@ SRSin <- function(Species_list, Occurrence_data, Raster_list,Pro_areas=NULL, Gap
     Pro_areas <- Pro_areas
   }
 
-  if(Gap_Map==TRUE){
+  if(isTRUE(Gap_Map)){
     GapMapIn_list <- list()
   }
 
@@ -97,43 +88,52 @@ SRSin <- function(Species_list, Occurrence_data, Raster_list,Pro_areas=NULL, Gap
   df <- data.frame(matrix(ncol = 2, nrow = length(Species_list)))
   colnames(df) <- c("species", "SRSin")
 
-  for(i in seq_len(length(Species_list))){
-    # pull the sdm to mask for
-    for(j in seq_len(length(Raster_list))){
-      if(grepl(j, i, ignore.case = TRUE)){
-        sdm <- Raster_list[[j]]
-      }
-    };rm(j)
+  for(i in seq_along(Species_list)){
+
+    # select raster with species name
+    # this assumes that the user provided the rasters in the same order as the Species_list
+    # as stated in the documentation
+    sdm <- Raster_list[[i]]
+
     # restrict protected areas to those that are present within the model threshold
     Pro_areas1 <- raster::crop(x = Pro_areas,y = sdm)
     if(raster::res(Pro_areas1)[1] != raster::res(sdm)[1]){
       Pro_areas1 <- raster::resample(x = Pro_areas1, y = sdm)
     }
-    sdm[sdm == 0]<-NA
+
+    sdm[sdm[] != 1] <- NA
+
     Pro_areasSpecies <- sdm * Pro_areas1
 
     # filter by specific species
+    # select species G occurrences
+    OccData  <- Occurrence_data[Occurrence_data$taxon == Species_list[i], ]
 
-    occData1 <- Occurrence_data[which(Occurrence_data$taxon==Species_list[i] & !is.na(Occurrence_data$latitude)),]
+    OccData  <- OccData[!is.na(OccData$latitude), ]
 
+    OccData  <- OccData[!is.na(OccData$longitude), ]
 
+    occData1  <- OccData[, c("longitude","latitude")]
 
     # extract values to all points
     sp::coordinates(occData1) <- ~longitude+latitude
-    sp::proj4string(occData1) <- sp::CRS("+proj=longlat +datum=WGS84")
+    sp::proj4string(occData1) <- sp::CRS(projection(sdm))
+
     # select all points within the SDM
-    inSDM <- occData1[!is.na(raster::extract(x = sdm,y = occData1)),]
+    inSDM <- occData1[!is.na(raster::extract(x = sdm, y = occData1)), ]
+
     # select all occurrences in SDM within protected area
-    protectPoints <- sum(!is.na(raster::extract(x = Pro_areas1,y = inSDM)))
+    protectPoints <- sum(!is.na(raster::extract(x = Pro_areas1, y = inSDM)))
 
     # include only points that are inside of the predicted presences area.
-    totalNum <- dim(inSDM)[1]
+    totalNum <- dim(inSDM@coords)[1]
+
     ### all know occurrence points
     # totalNum <- nrow(occData1)
 
     #define SRSin
     if(protectPoints >= 0 ){
-      SRSin <- 100 *(protectPoints/totalNum)
+      SRSin <- 100 * (protectPoints / totalNum)
     }else{
       SRSin <- 0
     }
@@ -158,7 +158,8 @@ SRSin <- function(Species_list, Occurrence_data, Raster_list,Pro_areas=NULL, Gap
       GapMapIn_list[[i]] <- gap_map
       names(GapMapIn_list[[i]] ) <- Species_list[[i]]
       }
-    }
+  }
+
   if(Gap_Map==TRUE){
     df <- list(SRSin=df, gap_maps = GapMapIn_list )
   }else{

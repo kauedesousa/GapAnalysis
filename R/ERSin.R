@@ -7,17 +7,10 @@
 #'  only when every ecoregion potentially inhabited by a species is included within the distribution of the species
 #'  located within a protected area.
 #'  This function uses a thresholded species distribution model, an ecoregions file, and a protected areas file
-#' @param Species_list A species list to calculate the ERSin metric
-#' @param Occurrence_data A data frame object with the species name, geographical coordinates,
-#'  and type of records (G or H) for a given species
-#' @param Raster_list A list representing the species distribution models for the species list provided
-#'  loaded in raster format. This list must match the same order as the species list.
-#' @param Pro_areas A raster file representing protected areas information.
-#'  If Pro_areas=NULL the funtion will use a protected area raster file provided for your use after run GetDatasets()
-#' @param Ecoregions_shp A shapefile representing Ecoregions_shp information with a field ECO_NUM representing Ecoregions_shp Ids.
-#'  If Ecoregions_shp=NULL the funtion will use a protected area raster file provided for your use after run GetDatasets()
-#' @param Gap_Map Default=NULL, This option will calculate gap maps for each species analyzed and will return a list
-#'  with two slots ERSin and gap_maps
+#' @inheritParams GRSex
+#' @inheritParams GRSin
+#' @param Gap_Map logical, if \code{TRUE} the function will calculate gap maps for each species analyzed
+#'  and will return a list  with two slots ERSin and gap_maps
 #' @return This function returns a dataframe as main result with two columns:
 #'
 #' \tabular{lcc}{
@@ -53,7 +46,7 @@
 #' @importFrom stats median
 #' @importFrom raster raster crop area shapefile
 
-ERSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL,Ecoregions_shp=NULL,Gap_Map=NULL) {
+ERSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL,Ecoregions_shp=NULL,Gap_Map=FALSE) {
 
   taxon <- NULL
   type <- NULL
@@ -78,27 +71,18 @@ ERSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL,Ecoreg
   }
 
 
-  #Checking if GapMapEx option is a boolean
-  if(is.null(Gap_Map) | missing(Gap_Map)){ Gap_Map <- FALSE
-  } else if(Gap_Map==TRUE | Gap_Map==FALSE){
-    Gap_Map <- Gap_Map
-  } else {
-    stop("Choose a valid option for GapMap (TRUE or FALSE)")
-  }
-
   #Checking if user is using a raster list or a raster stack
-  if(class(Raster_list)=="RasterStack"){
+  if (isTRUE("RasterStack" %in% class(Raster_list))) {
     Raster_list <- raster::unstack(Raster_list)
   } else {
     Raster_list <- Raster_list
   }
 
-
-  ## ERSin analyzes how well protected areas cover the distribution model with regard to ecosystems covered
+  # ERSin analyzes how well protected areas cover the distribution model with regard to ecosystems covered
   df <- data.frame(matrix(ncol=2, nrow = length(Species_list)))
   colnames(df) <- c("species", "ERSin")
   # load in protect area raster
-  if(is.null(Pro_areas) | missing(Pro_areas)){
+  if(is.null(Pro_areas)){
     if(file.exists(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",
                                package = "GapAnalysis"))){
       Pro_areas <- raster::raster(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",
@@ -110,7 +94,7 @@ ERSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL,Ecoreg
     Pro_areas <- Pro_areas
   }
   # Load in ecoregions shp
-  if(is.null(Ecoregions_shp) | missing(Ecoregions_shp)){
+  if(is.null(Ecoregions_shp)){
     if(file.exists(system.file("data/preloaded_data/ecoRegion/tnc_terr_ecoregions.shp",
                                package = "GapAnalysis"))){
       Ecoregions_shp <- raster::shapefile(system.file("data/preloaded_data/ecoRegion/tnc_terr_ecoregions.shp",
@@ -127,20 +111,21 @@ ERSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL,Ecoreg
     GapMapIn_list <- list()
   }
 
-  for(i in seq_len(length(Species_list))){
+  for(i in seq_along(Species_list)){
 
-       # select threshold map for a given species
-    for(j in seq_len(length(Raster_list))){
-      if(grepl(j, i, ignore.case = TRUE)){
-        sdm <- Raster_list[[j]]
-      }
-    }
+    # select raster with species name
+    # this assumes that the user provided the rasters in the same order as the Species_list
+    # as stated in the documentation
+    sdm <- Raster_list[[i]]
+
     # mask protected areas to threshold
     Pro_areas1 <- raster::crop(x = Pro_areas, y=sdm)
     if(raster::res(Pro_areas1)[1] != raster::res(sdm)[1]){
       Pro_areas1 <- raster::resample(x = Pro_areas1, y = sdm)
     }
-    sdm[sdm[] == 0] <- NA
+
+    sdm[sdm[] != 1] <- NA
+
     Pro_areas1 <- sdm * Pro_areas1
 
     #convert protect area to points

@@ -1,20 +1,12 @@
 #' @title Final conservation score ex situ
 #' @name FCSex
 #' @description This function calculates the average of the three ex situ conservation metrics
-#'   returning a final conservation score summary table. It also assigns conservation priority categories
-#' @param Species_list A species list to calculate metrics.
-#' @param Occurrence_data A data frame object with the species name, geographical coordinates,
-#'   and type of records (G or H) for a given species
-#' @param Raster_list A list representing the species distribution models for the species list provided
-#'  loaded in raster format. This list must match the same order as the species list.
-#' @param Buffer_distance Geographical distance used to create circular buffers around germplasm.
-#'  Default: 50000 (50 km) around germplasm accessions (CA50)
-#' @param Ecoregions_shp A shapefile representing ecoregions information with a field ECO_NUM representing ecoregions Ids.
-#'  If Ecoregions_shp=NULL the funtion will use a shapefile provided for your use after run GetDatasets()
-#' @param Gap_Map Default=NULL, This option will calculate gap maps for each species analyzed and will return a list
-#'  with four three FCSex, GRSex_maps,and ERSex_maps
-
-#' @return This function returns a data frame summarizing the ex-situ gap analysis scores:
+#'   returning a final conservation score summary table. It also assigns conservation priority
+#'   categories
+#' @inheritParams GRSex
+#' @param Gap_Map logical, if \code{TRUE} the function will calculate gap maps for each species
+#'  analyzed and will return a list with three FCSex, GRSex_maps, and ERSex_maps
+#' @return A data frame summarizing the ex-situ gap analysis scores:
 #'
 #' \tabular{lcc}{
 #' species \tab Species name \cr
@@ -22,6 +14,7 @@
 #' GRSex \tab Geographical representativeness score ex situ \cr
 #' ERSex \tab Ecological representativeness score ex situ \cr
 #' FCSex \tab Final conservation score ex situ  \cr
+#' FCSex_class \tab The conservation priority category \cr
 #' }
 #'
 #' @examples
@@ -34,22 +27,25 @@
 #' CucurbitaRasters <- raster::unstack(CucurbitaRasters)
 #' ##Obtaining ecoregions shapefile
 #' data(ecoregions)
-#' #Running all three Ex-situ gap analysis steps using a unique function
+#' # Running all three Ex-situ gap analysis steps using a unique function
 #' FCSex_df <- FCSex(Species_list=Cucurbita_splist,
-#'                                       Occurrence_data=CucurbitaData,
-#'                                       Raster_list=CucurbitaRasters,
-#'                                       Buffer_distance=50000,
-#'                                       Ecoregions_shp=ecoregions,
-#'                                       Gap_Map=NULL)
+#'                   Occurrence_data=CucurbitaData,
+#'                   Raster_list=CucurbitaRasters,
+#'                   Buffer_distance=50000,
+#'                   Ecoregions_shp=ecoregions)
 #'
 #'@references
 #'
-#' Khoury et al. (2019) Ecological Indicators 98:420-429. doi: 10.1016/j.ecolind.2018.11.016
+#' Khoury et al. (2019) Ecological Indicators 98:420-429.
+#' \url{https://doi.org/10.1016/j.ecolind.2018.11.016}
 #'
 #' @export
-
-
-FCSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50000,Ecoregions_shp=NULL,Gap_Map=NULL){
+FCSex <- function(Species_list,
+                  Occurrence_data,
+                  Raster_list,
+                  Buffer_distance = 50000,
+                  Ecoregions_shp = NULL,
+                  Gap_Map = FALSE){
 
   SRSex_df <- NULL
   GRSex_df <- NULL
@@ -60,7 +56,7 @@ FCSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
   par_names <- c("taxon","latitude","longitude","type")
 
   if(missing(Occurrence_data)){
-    stop("Please add a valid data frame with columns: taxon,latitude,longitude,type")
+    stop("Please add a valid data frame with columns: taxon, latitude, longitude, type")
   }
 
   if(identical(names(Occurrence_data),par_names)==FALSE){
@@ -72,7 +68,8 @@ FCSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
     if(file.exists(system.file("data/preloaded_data/ecoRegion/tnc_terr_ecoregions.shp",
                                package = "GapAnalysis"))){
       Ecoregions_shp <- raster::shapefile(system.file("data/preloaded_data/ecoRegion/tnc_terr_ecoregions.shp",
-                                                      package = "GapAnalysis"),encoding = "UTF-8")
+                                                      package = "GapAnalysis"),
+                                          encoding = "UTF-8")
     } else {
       stop("Ecoregions file is not available yet. Please run the function GetDatasets() and try again")
     }
@@ -80,66 +77,49 @@ FCSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
     Ecoregions_shp <- Ecoregions_shp
   }
 
-
-  #Checking if GapMapEx option is a boolean
-  if(is.null(Gap_Map) | missing(Gap_Map)){ Gap_Map <- FALSE
-  } else if(Gap_Map==TRUE | Gap_Map==FALSE){
-    Gap_Map <- Gap_Map
-  } else {
-    stop("Choose a valid option for GapMap (TRUE or FALSE)")
-  }
-
-
   # call SRSex
   SRSex_df <- SRSex(Species_list = Species_list,
-                     Occurrence_data = Occurrence_data)
+                    Occurrence_data = Occurrence_data)
   # call GRSex
   GRSex_df <- GRSex(Occurrence_data = Occurrence_data,
-                     Species_list = Species_list,
+                    Species_list = Species_list,
                     Raster_list = Raster_list,
                     Buffer_distance = Buffer_distance,
                     Gap_Map = Gap_Map)
   # call ERSex
   ERSex_df <- ERSex(Species_list = Species_list,
-                     Occurrence_data = Occurrence_data,
+                    Occurrence_data = Occurrence_data,
                     Raster_list = Raster_list,
                     Buffer_distance = Buffer_distance,
                     Ecoregions_shp=Ecoregions_shp,
                     Gap_Map = Gap_Map)
 
   # join the dataframes based on species
-
-  if(class(GRSex_df)!="list"){
-    FCSex_df <- merge(SRSex_df, GRSex_df, by ="species")
+  if (is.list(GRSex_df)) {
+    FCSex_df <- merge(SRSex_df, GRSex_df, by = "species", all.x = TRUE)
   } else {
-    FCSex_df <- merge(SRSex_df, GRSex_df$GRSex, by ="species")
+    FCSex_df <- merge(SRSex_df, GRSex_df$GRSex, by ="species", all.x = TRUE)
   }
 
+  FCSex_df <- merge(FCSex_df, ERSex_df$ERSex, by = "species", all.x = TRUE)
 
-  FCSex_df <- merge(FCSex_df, ERSex_df$ERSex, by = "species")
+  FCSex_df[is.na(FCSex_df)] <- 0
+
   # calculate the mean value for each row to determine fcs per species
-  for(i in seq_len(nrow(FCSex_df))){
-    FCSex_df$FCSex[i] <- base::mean(c(FCSex_df$SRSex[i], FCSex_df$GRSex[i], FCSex_df$ERSex[i]))
-  };rm(i)
-  #assign classes (exsitu)
-  FCSex_df$FCSex_class <- NA
-  for (i in seq_len(nrow(FCSex_df))) {
-    if (FCSex_df$FCSex[i] < 25) {
-      FCSex_df$FCSex_class[i] <- "HP"
-    } else if (FCSex_df$FCSex[i] >= 25 & FCSex_df$FCSex[i] < 50) {
-      FCSex_df$FCSex_class[i] <- "MP"
-    } else if (FCSex_df$FCSex[i] >= 50 & FCSex_df$FCSex[i] < 75) {
-      FCSex_df$FCSex_class[i] <- "LP"
-    } else {
-      FCSex_df$FCSex_class[i] <- "SC"
-    }
-  }
+  FCSex_df$FCSex <- rowMeans(FCSex_df[, c("SRSex", "GRSex", "ERSex")])
 
-  if(Gap_Map==TRUE){
-    FCSex_df <- list(FCSex=FCSex_df,GRSex_maps=GRSex_df$gap_maps,ERSex_maps=ERSex_df$gap_maps)
-  } else{
-    FCSex_df <- FCSex_df
+  #assign classes (exsitu)
+  FCSex_df$FCSex_class <- with(FCSex_df, ifelse(FCSex < 25, "HP",
+                                                ifelse(FCSex >= 25 & FCSex < 50, "MP",
+                                                       ifelse(FCSex >= 50 & FCSex < 75, "LP",
+                                                              "SC"))))
+
+  if (isTRUE(Gap_Map)) {
+    FCSex_df <- list(FCSex = FCSex_df,
+                     GRSex_maps = GRSex_df$gap_maps,
+                     ERSex_maps = ERSex_df$gap_maps)
   }
 
   return(FCSex_df)
+
 }

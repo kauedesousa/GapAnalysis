@@ -4,16 +4,16 @@
 #'  that can be considered to be conserved in ex situ repositories. The GRSex uses buffers (default 50 km radius)
 #'  created around each G coordinate point to estimate geographic areas already well collected within the distribution
 #'  models of each taxon, and then calculates the proportion of the distribution model covered by these buffers.
+#'
 #' @param Occurrence_data A data frame object with the species name, geographical coordinates,
-#'  and type of records (G or H) for a given species
-#' @param Species_list A species list to calculate the GRSex metrics.
-#' @param Raster_list A list representing the species distribution models for the species list provided
-#'  loaded in raster format. This list must match the same order as the species list.
+#'  and type of records (G or H) for a given species. See details
+#' @param Species_list A vector of characters with the species names to calculate the GRSex metrics.
+#' @param Raster_list A list of rasters representing the species distribution models for the species list provided
+#'  in \var{Species_list}. The order of rasters in this list must match the same order as \var{Species_list}.
 #' @param Buffer_distance Geographical distance used to create circular buffers around germplasm.
 #'  Default: 50000 (50 km) around germplasm accessions (CA50)
-#' @param Gap_Map Default=NULL, This option will calculate gap maps for each species analyzed and will retun a list
-#'  with two slots GRSex and gap_maps
-#'
+#' @param Gap_Map logical, if \code{TRUE} the function will calculate gap maps for each species analyzed
+#'  and will return a list with two slots GRSex and gap_maps
 #' @return This function returns a data frame with two columns:
 #'
 #' \tabular{lcc}{
@@ -32,8 +32,7 @@
 #' GRSex_df <- GRSex(Species_list = Cucurbita_splist,
 #'                     Occurrence_data = CucurbitaData,
 #'                     Raster_list = CucurbitaRasters,
-#'                     Buffer_distance = 50000,
-#'                     Gap_Map = NULL)
+#'                     Buffer_distance = 50000)
 #'
 #' @references
 #' Ramirez-Villegas et al. (2010) PLOS ONE, 5(10), e13497. doi: 10.1371/journal.pone.0013497
@@ -44,10 +43,11 @@
 #' @importFrom stats median
 #' @importFrom fasterize fasterize
 #' @importFrom raster overlay crop raster extent ncell
-
-
-
-GRSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50000, Gap_Map=NULL) {
+GRSex <- function(Species_list,
+                  Occurrence_data,
+                  Raster_list,
+                  Buffer_distance = 50000,
+                  Gap_Map = FALSE) {
 
   longitude <- NULL
   taxon <- NULL
@@ -64,16 +64,9 @@ GRSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
   if(identical(names(Occurrence_data),par_names)==FALSE){
     stop("Please format the column names in your dataframe as taxon,latitude,longitude,type")
   }
-  #Checking if GapMapEx option is a boolean
-  if(is.null(Gap_Map) | missing(Gap_Map)){ Gap_Map <- FALSE
-  } else if(Gap_Map==TRUE | Gap_Map==FALSE){
-    Gap_Map <- Gap_Map
-  } else {
-    stop("Choose a valid option for GapMap (TRUE or FALSE)")
-  }
 
   #Checking if user is using a raster list or a raster stack
-  if(class(Raster_list)=="RasterStack"){
+  if (isTRUE("RasterStack" %in% class(Raster_list))) {
     Raster_list <- raster::unstack(Raster_list)
   } else {
     Raster_list <- Raster_list
@@ -84,40 +77,63 @@ GRSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
   df <- data.frame(matrix(ncol = 2, nrow = length(Species_list)))
   colnames(df) <- c("species", "GRSex")
 
-  if(Gap_Map==TRUE){
+  if (isTRUE(Gap_Map)) {
     GapMapEx_list <- list()
   }
 
-  for(i in seq_len(length(sort(Species_list)))){
-    # select species G occurrences
+  for(i in seq_along(Species_list)){
 
-    OccData  <- Occurrence_data[which(Occurrence_data$taxon==Species_list[i]),]
-    OccData  <- OccData [which(OccData $type == "G" & !is.na(OccData $latitude)),]
-    OccData  <- OccData [,c("longitude","latitude")]
-
-    sp::coordinates(OccData ) <- ~longitude+latitude
-    sp::proj4string(OccData ) <- sp::CRS("+proj=longlat +datum=WGS84")
     # select raster with species name
-    for(j in seq_len(length(Raster_list))){
-      if(grepl(j, i, ignore.case = TRUE)){
-        sdm <- Raster_list[[j]]
+    # this assumes that the user provided the rasters in the same order as the Species_list
+    # as stated in the documentation
+    sdm <- Raster_list[[i]]
+
+    # select species G occurrences
+    OccData  <- Occurrence_data[Occurrence_data$taxon == Species_list[i], ]
+
+    OccData  <- OccData[OccData$type == "G", ]
+
+    OccData  <- OccData[!is.na(OccData$latitude), ]
+
+    OccData  <- OccData[!is.na(OccData$longitude), ]
+
+    OccData  <- OccData[,c("longitude","latitude")]
+
+    # if no data retained then put zeros and go to the next iteration
+    if (isTRUE(dim(OccData)[[1]] == 0)) {
+
+      df$species[i] <- as.character(Species_list[i])
+      df$GRSex[i] <- 0
+
+      if (isTRUE(Gap_Map)) {
+        GapMapEx_list[[i]] <- NA
       }
+      # jump to the next iteration
+      next
     }
+
+    sp::coordinates(OccData) <- ~longitude+latitude
+    # use the same projection as the given sdm raster
+    sp::proj4string(OccData) <- sp::CRS(projection(sdm))
+
     # convert SDM from binary to 1-NA for mask and area
     sdmMask <- sdm
-    sdmMask[sdmMask[] == 0] <- NA
+    sdmMask[sdmMask[] != 1] <- NA
+
     # buffer G points
-    buffer <- GapAnalysis::Gbuffer(xy = OccData ,
-                                       dist_m = Buffer_distance,
-                                       output = 'sf')
+    buffer <- Gbuffer(xy = OccData,
+                      dist_m = Buffer_distance,
+                      output = 'sf')
+
     # rasterizing and making it into a mask
     buffer_rs <- fasterize::fasterize(buffer, sdm)
     buffer_rs[!is.na(buffer_rs[])] <- 1
     buffer_rs <- buffer_rs * sdmMask
+
     # calculate area of buffer
-    cell_size<-raster::area(buffer_rs, na.rm=TRUE, weights=FALSE)
-    cell_size<-cell_size[!is.na(cell_size)]
-    gBufferRas_area<-length(cell_size)*median(cell_size)
+    cell_size <- raster::area(buffer_rs, na.rm = TRUE, weights = FALSE)
+    cell_size <- cell_size[!is.na(cell_size)]
+    gBufferRas_area <- length(cell_size)*median(cell_size)
 
     # calculate area of the threshold model
     cell_size<- raster::area(sdmMask, na.rm=TRUE, weights=FALSE)
@@ -131,8 +147,8 @@ GRSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
 
     #GRSex gap map
 
-    if(Gap_Map==TRUE){
-      message(paste0("Calculating GRSex gap map for ",as.character(Species_list[i])),"\n")
+  if (isTRUE(Gap_Map)) {
+      message(paste0("Calculating GRSex gap map for ", as.character(Species_list[i])),"\n")
       bf2 <- buffer_rs
       bf2[is.na(bf2),] <- 0
       gap_map <- sdmMask - bf2
@@ -140,12 +156,16 @@ GRSex <- function(Species_list, Occurrence_data, Raster_list, Buffer_distance=50
       GapMapEx_list[[i]] <- gap_map
       names(GapMapEx_list[[i]] ) <- Species_list[[i]]
     }
+
   }
-  if(Gap_Map==TRUE){
-      df <- list(GRSex= df,gap_maps=GapMapEx_list)
-    } else {
-      df <- df
-    }
+
+  if (isTRUE(Gap_Map)) {
+      df <- list(GRSex = df, gap_maps = GapMapEx_list)
+  }
+
+  if (isFALSE(Gap_Map)){
+    df <- df
+  }
 
   return(df)
 }

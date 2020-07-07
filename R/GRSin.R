@@ -5,14 +5,11 @@
 #' the total area of the model, considering comprehensive conservation to have been accomplished only when the entire distribution
 #' occurs within protected areas.
 #'
-#' @param Species_list A species list to calculate the GRSin metrics.
-#' @param Occurrence_data A data frame object with the species name, geographical coordinates, and type of records (G or H) for a given species
-#' @param Raster_list A list representing the species distribution models for the species list provided loaded in raster format.
-#'  This list must match the same order as the species list.
-#' @param Raster_list A list representing the species distribution models for the species list provided loaded in raster format. This list must match the same order of the species list.
-#' @param Pro_areas A raster file representing protected areas information. If Pro_areas=NULL the function will use a protected area raster file
-#'  provided for your use after run GetDatasets()
-#' @param Gap_Map Default=NULL, This option will calculate gap maps for each species analyzed and will return a list
+#' @inheritParams GRSex
+#' @param Pro_areas A raster object of protected areas, with values 0 and 1, where 1 indicates that a given grid-cell is located within
+#'  a protected area. If \code{Pro_areas = NULL} the function will use a protected area raster
+#'  file provided for your use after run \code{GetDatasets()}
+#' @param Gap_Map logical, if \code{TRUE} the function will calculate gap maps for each species analyzed and will return a list
 #'  with two slots ERSin and gap_maps
 #'
 #' @return This function returns a data frame with two columns:
@@ -36,8 +33,7 @@
 #' GRSin_df <- GRSin(Species_list = Cucurbita_splist,
 #'                     Occurrence_data = CucurbitaData,
 #'                     Raster_list = CucurbitaRasters,
-#'                     Pro_areas=ProtectedAreas,
-#'                     Gap_Map=NULL)
+#'                     Pro_areas=ProtectedAreas)
 #'
 #'
 #'@references
@@ -47,11 +43,11 @@
 #' @export
 #' @importFrom stats median
 #' @importFrom raster raster crop area
-
-
-
-
-GRSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL, Gap_Map=NULL){
+GRSin <- function(Species_list,
+                  Occurrence_data,
+                  Raster_list,
+                  Pro_areas=NULL,
+                  Gap_Map=FALSE){
 
 # suppressMessages(require(rgdal))
 # suppressMessages(require(raster))
@@ -75,25 +71,19 @@ GRSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL, Gap_M
   if(identical(names(Occurrence_data),par_names)==FALSE){
     stop("Please format the column names in your dataframe as taxon,latitude,longitude,type")
   }
+
   #Checking if user is using a raster list or a raster stack
-  if(class(Raster_list)=="RasterStack"){
+  if (isTRUE("RasterStack" %in% class(Raster_list))) {
     Raster_list <- raster::unstack(Raster_list)
   } else {
     Raster_list <- Raster_list
   }
 
-  #Checking if GapMapEx option is a boolean
-  if(is.null(Gap_Map) | missing(Gap_Map)){ Gap_Map <- FALSE
-  } else if(Gap_Map==TRUE | Gap_Map==FALSE){
-    Gap_Map <- Gap_Map
-  } else {
-    stop("Choose a valid option for GapMap (TRUE or FALSE)")
-  }
-
   df <- data.frame(matrix(ncol=2, nrow = length(Species_list)))
+
   colnames(df) <- c("species", "GRSin")
   # load in protected areas raster
-  if(is.null(Pro_areas) | missing(Pro_areas)){
+  if (is.null(Pro_areas)) {
     if(file.exists(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",package = "GapAnalysis"))){
       Pro_areas <- raster::raster(system.file("data/preloaded_data/protectedArea/wdpa_reclass.tif",package = "GapAnalysis"))
     } else {
@@ -109,17 +99,18 @@ GRSin <- function(Species_list,Occurrence_data,Raster_list,Pro_areas=NULL, Gap_M
 
 
   # loop over species list
-  for(i in seq_len(length(Species_list))){
-    # select threshold map for a given species
-    for(j in seq_len(length(Raster_list))){
-      if(grepl(j, i, ignore.case = TRUE)){
-        sdm <- Raster_list[[j]]
-      }
-    }
+  for(i in seq_along(Species_list)){
+
+    # select raster with species name
+    # this assumes that the user provided the rasters in the same order as the Species_list
+    # as stated in the documentation
+    sdm <- Raster_list[[i]]
+
     # determine the area of predicted presence of a species based on the species distribution map
     sdm1 <- sdm
     Pro_areas1 <- raster::crop(x = Pro_areas,y = sdm1)
-    sdm1[sdm1[] == 0] <- NA
+    sdm1[sdm1[] != 1] <- NA
+
     if(raster::res(Pro_areas1)[1] != raster::res(sdm)[1]){
       Pro_areas1 <- raster::resample(x = Pro_areas1, y = sdm)
     }

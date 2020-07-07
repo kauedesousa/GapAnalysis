@@ -9,7 +9,7 @@ SRSin(
   Occurrence_data,
   Raster_list,
   Pro_areas = NULL,
-  Gap_Map = NULL
+  Gap_Map = FALSE
 )
 }
 \arguments{

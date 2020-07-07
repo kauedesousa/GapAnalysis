@@ -33,7 +33,6 @@
 #' @export
 #' @importFrom fasterize fasterize
 #' @importFrom stats median
-
 SRSex <- function(Species_list, Occurrence_data) {
 
   species <- NULL
@@ -48,9 +47,6 @@ SRSex <- function(Species_list, Occurrence_data) {
   if(identical(names(Occurrence_data),par_names)==FALSE){
     stop("Please format the column names in your dataframe as taxon,latitude,longitude,type")
   }
-
-
-
 
   dt1 <- data.frame(matrix(nrow = length(Species_list), ncol = 2))
   colnames(dt1) <- c("species", "SRSex")
